@@ -4,6 +4,60 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from datetime import date, timedelta
 
+# ----------------- Page config FIRST -----------------
+st.set_page_config(page_title="Invisible CFO", layout="wide")
+
+# ----------------- Stripe/Square styling -----------------
+st.markdown("""
+<style>
+/* App container */
+.block-container {
+    max-width: 1080px;
+    padding-top: 2.2rem;
+    padding-bottom: 3rem;
+}
+
+/* Typography */
+h1 { letter-spacing: -0.02em; margin-bottom: 0.25rem; }
+p, li, div { color: #0f172a; }
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    border-right: 1px solid #e5e7eb;
+}
+section[data-testid="stSidebar"] .block-container {
+    padding-top: 1.5rem;
+}
+
+/* Metric cards */
+div[data-testid="stMetric"] {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    padding: 18px 18px 14px 18px;
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+/* Metric label */
+div[data-testid="stMetricLabel"] p {
+    font-size: 0.85rem;
+    color: #475569;
+}
+
+/* Metric value */
+div[data-testid="stMetricValue"] {
+    font-size: 1.7rem;
+}
+
+/* Subtle section spacing */
+div[data-testid="stVerticalBlock"] { gap: 0.9rem; }
+
+/* Hide Streamlit default footer */
+footer { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
+# ----------------- Core model -----------------
 def simulate_cash_forecast(
     starting_cash: float,
     daily_revenue_avg: float,
@@ -101,8 +155,8 @@ def make_decision_cards(baseline, scenarios):
 
         confidence = "High" if delta_min >= 5000 else ("Medium" if delta_min >= 1500 else "Low")
         rationale = (
-            f"Improves minimum cash buffer by ${delta_min:,.2f} "
-            f"(from ${base_min:,.2f} to ${m['min_projected_cash']:,.2f})."
+            f"Improves minimum cash buffer by ${delta_min:,.0f} "
+            f"(from ${base_min:,.0f} to ${m['min_projected_cash']:,.0f})."
         )
 
         cards.append({
@@ -116,11 +170,13 @@ def make_decision_cards(baseline, scenarios):
     cards.sort(key=lambda x: x["impact_min_cash_delta"], reverse=True)
     return cards
 
-st.set_page_config(page_title="Invisible CFO", layout="wide")
-st.title("Invisible CFO — 90-Day Cash Decision Engine")
+# ----------------- Header -----------------
+st.title("Invisible CFO")
+st.caption("Liquidity decisions for small businesses — forecast risk, simulate changes, and get ranked actions.")
 
+# ----------------- Inputs -----------------
 with st.sidebar:
-    st.header("Inputs")
+    st.subheader("Inputs")
     starting_cash = st.number_input("Starting cash ($)", min_value=0.0, value=18000.0, step=500.0)
     daily_revenue_avg = st.number_input("Avg daily revenue ($)", min_value=0.0, value=900.0, step=50.0)
     daily_revenue_std = st.number_input("Daily revenue volatility (std)", min_value=0.0, value=250.0, step=25.0)
@@ -128,8 +184,9 @@ with st.sidebar:
     biweekly_payroll = st.number_input("Biweekly payroll ($)", min_value=0.0, value=12000.0, step=250.0)
     inventory_purchase_amount = st.number_input("Inventory purchase amount ($)", min_value=0.0, value=6000.0, step=250.0)
     inventory_purchase_day = st.slider("Inventory purchase day (1–90)", min_value=1, max_value=90, value=20)
-    seed = st.number_input("Simulation seed (keeps results stable)", min_value=0, value=42, step=1)
+    seed = st.number_input("Simulation seed", min_value=0, value=42, step=1)
 
+# ----------------- Compute -----------------
 baseline_df = simulate_cash_forecast(
     starting_cash=starting_cash,
     daily_revenue_avg=daily_revenue_avg,
@@ -162,28 +219,55 @@ scenario_dfs = {
 scenario_metrics = {k: compute_metrics(v) for k, v in scenario_dfs.items()}
 cards = make_decision_cards(baseline_metrics, scenario_metrics)
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Runway (days)", baseline_metrics["runway_days"])
-col2.metric("Minimum projected cash", f"${baseline_metrics['min_projected_cash']:,.2f}")
-risk = "High" if baseline_metrics["min_projected_cash"] < 1000 else ("Medium" if baseline_metrics["min_projected_cash"] < 5000 else "Low")
-col3.metric("Liquidity Risk", risk)
+# Risk label
+min_cash = baseline_metrics["min_projected_cash"]
+risk = "High" if min_cash < 1000 else ("Medium" if min_cash < 5000 else "Low")
 
-st.subheader("90-Day Cash Forecast (Baseline)")
-fig = plt.figure()
-plt.plot(baseline_df["day"], baseline_df["cash_balance"])
-plt.axhline(0)
-plt.xlabel("Day")
-plt.ylabel("Cash Balance ($)")
-st.pyplot(fig)
+# ----------------- Top metrics -----------------
+c1, c2, c3 = st.columns(3)
+c1.metric("Cash runway", f"{baseline_metrics['runway_days']} days")
+c2.metric("Minimum cash buffer", f"${min_cash:,.0f}", help="Lowest projected liquidity point in the next 90 days")
+c3.metric("Liquidity risk", risk)
 
-st.subheader("Decision Cards (Ranked by Liquidity Buffer Improvement)")
-for c in cards:
-    with st.expander(
-        f"{c['action']}  •  Confidence: {c['confidence']}  •  Δ Min Cash: ${c['impact_min_cash_delta']:,.2f}",
-        expanded=False
-    ):
-        st.write("**Why:**", c["rationale"])
-        st.write("**Tradeoffs:**", c["tradeoffs"])
+# ----------------- Tabs for clean layout -----------------
+tab1, tab2 = st.tabs(["Recommended actions", "Forecast & scenarios"])
 
-st.subheader("Scenario Metrics")
-st.dataframe(pd.DataFrame(scenario_metrics).T)
+with tab1:
+    st.subheader("Recommended actions")
+    for c in cards:
+        st.markdown(f"""
+<div style="
+    background:#ffffff;
+    border:1px solid #e5e7eb;
+    border-radius:16px;
+    padding:16px 18px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    margin-bottom:12px;">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+    <div style="font-size:1.05rem; font-weight:650; color:#0f172a;">{c['action']}</div>
+    <div style="font-size:0.9rem; color:#334155;">Confidence: {c['confidence']}</div>
+  </div>
+  <div style="margin-top:8px; font-size:0.95rem;">
+    <span style="color:#475569;">Impact:</span>
+    <span style="font-weight:650;"> +${c['impact_min_cash_delta']:,.0f}</span> to minimum cash buffer
+  </div>
+  <div style="margin-top:8px; font-size:0.92rem; color:#334155;">
+    <span style="color:#475569;">Why:</span> {c['rationale']}
+  </div>
+  <div style="margin-top:8px; font-size:0.92rem; color:#334155;">
+    <span style="color:#475569;">Tradeoff:</span> {c['tradeoffs']}
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+with tab2:
+    st.subheader("90-day cash forecast")
+    fig, ax = plt.subplots()
+    ax.plot(baseline_df["day"], baseline_df["cash_balance"], linewidth=3)
+    ax.axhline(0)
+    ax.set_xlabel("Day")
+    ax.set_ylabel("Cash balance ($)")
+    st.pyplot(fig)
+
+    st.subheader("Scenario comparison")
+    st.dataframe(pd.DataFrame(scenario_metrics).T, use_container_width=True)
